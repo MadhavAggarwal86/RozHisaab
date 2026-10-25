@@ -18,6 +18,9 @@ if (!MONGO_URI || !process.env.JWT_SECRET) {
 const allowedOrigins = CLIENT_URL.split(',').map((url) => url.trim().replace(/\/+$/, '')).filter(Boolean);
 
 const app = express();
+// Render sits behind a proxy; trust it so rate limits see the real client IP. TRUST_PROXY overrides the hop count.
+const trustProxy = process.env.TRUST_PROXY ?? (process.env.RENDER ? '1' : '');
+if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 

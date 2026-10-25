@@ -3,12 +3,28 @@ import mongoose from 'mongoose';
 import Bill from '../models/Bill.js';
 import Product from '../models/Product.js';
 import requireAuth from '../middleware/auth.js';
+import { billCreateLimiter } from '../middleware/rateLimit.js';
 import { buildBill, validateLines } from '../utils/billingAi.js';
 
 const router = Router();
 router.use(requireAuth);
 
 const MAX_DESCRIPTION = 200;
+
+// Prices { items: [{ item_id, quantity, product_id? }] } from the user's current products.
+// Returns { value: { items, total } } or { error } with a user-facing message.
+async function priceLines(owner, rawItems) {
+  const { value: lines, error } = validateLines(rawItems);
+  if (error) return { error };
+  if (!lines.length) return { error: 'The bill has no items' };
+
+  const products = await Product.find({ owner, itemId: { $in: lines.map((l) => l.item_id) } });
+  const bill = buildBill(products, lines);
+  if (bill.items.length !== new Set(lines.map((l) => l.item_id)).size) {
+    return { error: 'Some items on the bill are no longer in your inventory' };
+  }
+  return { value: bill };
+}
 
 // Oldest first (ascending bill number), as shown in Billing History
 router.get('/', async (req, res) => {
@@ -67,23 +83,24 @@ router.get('/sales', async (req, res) => {
   }
 });
 
-// Issues a bill from { items: [{ item_id, quantity }], description }. Names, prices and the total
-// come from the user's current products, never from the client.
-router.post('/', async (req, res) => {
-  const { value: lines, error } = validateLines(req.body?.items);
+// Prices a draft bill without saving it, e.g. after the user picks between same-name products
+router.post('/preview', async (req, res) => {
+  const { value, error } = await priceLines(req.userId, req.body?.items);
   if (error) return res.status(400).json({ message: error });
-  if (!lines.length) return res.status(400).json({ message: 'The bill has no items' });
+  res.json(value);
+});
 
+// Issues a bill from { items: [{ item_id, quantity, product_id? }], description }. Names, prices and the total
+// come from the user's current products, never from the client.
+router.post('/', billCreateLimiter, async (req, res) => {
   const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
   if (description.length > MAX_DESCRIPTION) {
     return res.status(400).json({ message: `Description must be at most ${MAX_DESCRIPTION} characters` });
   }
 
-  const products = await Product.find({ owner: req.userId, itemId: { $in: lines.map((l) => l.item_id) } });
-  const { items, total } = buildBill(products, lines);
-  if (items.length !== new Set(lines.map((l) => l.item_id)).size) {
-    return res.status(400).json({ message: 'Some items on the bill are no longer in your inventory' });
-  }
+  const { value, error } = await priceLines(req.userId, req.body?.items);
+  if (error) return res.status(400).json({ message: error });
+  const { items, total } = value;
 
   try {
     const last = await Bill.findOne({ owner: req.userId }).sort({ billNumber: -1 }).select('billNumber');
@@ -91,7 +108,7 @@ router.post('/', async (req, res) => {
       owner: req.userId,
       billNumber: (last?.billNumber || 0) + 1,
       description: description || items.map((i) => i.item_name).join(', ').slice(0, MAX_DESCRIPTION),
-      items: items.map((i) => ({ itemId: i.item_id, itemName: i.item_name, price: i.price, quantity: i.quantity, unit: i.unit, amount: i.amount })),
+      items: items.map((i) => ({ itemId: i.item_id, productId: i.product_id, itemName: i.item_name, price: i.price, quantity: i.quantity, unit: i.unit, amount: i.amount })),
       total,
     });
     res.status(201).json({ bill });

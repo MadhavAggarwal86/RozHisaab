@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { DeleteIcon, EditIcon } from './icons.jsx';
 import PriceInput from './PriceInput.jsx';
 import { perUnit } from '../units.js';
+import { findConflict, formatPrice } from '../productConflict.js';
 
 const isComplete = (item) => Boolean(item.item_name?.trim()) && item.price !== '' && item.price != null;
 
-// Shows the products the assistant extracted. Any item can be edited or removed; missing fields must be filled in;
-// "Add" saves only the complete ones.
-export default function ReviewModal({ items: initialItems, busy, onAdd, onClose }) {
+// Shows the products the assistant extracted. Any item can be edited or removed; missing fields must be filled in,
+// and items already in `products` need the user to choose "Update price" or "Add separately".
+// "Add" saves only the items that are complete and resolved.
+export default function ReviewModal({ items: initialItems, products = [], busy, onAdd, onClose }) {
   const [items, setItems] = useState(() =>
     initialItems.map((item, i) => ({ ...item, key: i, editing: !item.item_name || item.price == null }))
   );
@@ -22,18 +24,62 @@ export default function ReviewModal({ items: initialItems, busy, onAdd, onClose 
     setItems((list) => list.map((item) => (item.key === key ? { ...item, [field]: value } : item)));
   const remove = (key) => setItems((list) => list.filter((item) => item.key !== key));
 
-  const ready = items.filter(isComplete);
+  const conflictOf = (item) => (isComplete(item) ? findConflict(products, item) : null);
+  // `action` is the user's choice for a conflicting item; a stale choice (e.g. "update" after the price
+  // was edited to match) doesn't count
+  const resolved = (item) => {
+    const conflict = conflictOf(item);
+    if (!conflict) return true;
+    return item.action === 'add_new' || (item.action === 'update' && conflict.code === 'PRICE_MISMATCH');
+  };
+
+  const ready = items.filter((item) => isComplete(item) && resolved(item));
   const skipped = items.length - ready.length;
 
   const add = () =>
     onAdd(
-      ready.map((item) => ({
-        item_name: item.item_name.trim(),
-        description: item.description?.trim() ?? '',
-        price: Number(item.price),
-        unit: item.unit || 'pc',
-      }))
+      ready.map((item) => {
+        const conflict = conflictOf(item);
+        return {
+          item_name: item.item_name.trim(),
+          description: item.description?.trim() ?? '',
+          price: Number(item.price),
+          unit: item.unit || 'pc',
+          ...(conflict && { action: item.action, existing: conflict.existing }),
+        };
+      })
     );
+
+  const conflictNotice = (item) => {
+    const conflict = conflictOf(item);
+    if (!conflict) return null;
+    const mismatch = conflict.code === 'PRICE_MISMATCH';
+    const choice = (action, label) => (
+      <button
+        type="button"
+        className={item.action === action ? '' : 'secondary'}
+        aria-pressed={item.action === action}
+        onClick={() => update(item.key, 'action', item.action === action ? null : action)}
+        disabled={busy}
+      >
+        {label}
+      </button>
+    );
+    return (
+      <div className="review-conflict">
+        <div className="warning">
+          {mismatch
+            ? `Already in inventory at ${formatPrice(conflict.existing.price, conflict.existing.unit)}. You entered ${formatPrice(item.price, item.unit)}.`
+            : `Already in inventory at ${formatPrice(item.price, item.unit)}.`}
+          {!resolved(item) && ' Choose what to do, or it will be skipped.'}
+        </div>
+        <div className="review-buttons">
+          {mismatch && choice('update', 'Update price')}
+          {choice('add_new', 'Add separately')}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="modal-backdrop" onClick={() => !busy && onClose()}>
@@ -86,6 +132,7 @@ export default function ReviewModal({ items: initialItems, busy, onAdd, onClose 
               {!isComplete(item) && (
                 <div className="review-hint">Fill in the name and price, or remove this item. Otherwise it will be skipped.</div>
               )}
+              {!item.editing && conflictNotice(item)}
             </li>
           ))}
         </ul>

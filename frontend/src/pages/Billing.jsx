@@ -21,7 +21,7 @@ export default function Billing() {
     setSaving(true);
     setError('');
     try {
-      const items = bill.items.map(({ item_id, quantity }) => ({ item_id, quantity }));
+      const items = bill.items.map(({ item_id, quantity, product_id }) => ({ item_id, quantity, product_id }));
       const result = await api('/bills', { method: 'POST', body: { items, description }, token });
       setIssued(result.bill);
       setDescription('');

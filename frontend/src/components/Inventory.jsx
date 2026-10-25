@@ -3,7 +3,9 @@ import { api } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { DeleteIcon, EditIcon } from './icons.jsx';
 import PriceInput from './PriceInput.jsx';
+import PriceConflictModal from './PriceConflictModal.jsx';
 import { perUnit } from '../units.js';
+import { conflictFromError, findConflict, priceUpdateBody } from '../productConflict.js';
 
 const emptyForm = { item_name: '', description: '', price: '', unit: 'pc' };
 
@@ -14,6 +16,10 @@ export default function Inventory() {
   const [error, setError] = useState('');
   const [newProduct, setNewProduct] = useState(emptyForm);
   const [adding, setAdding] = useState(false);
+  // Same-name product found while adding; the user decides what to do before anything is saved
+  const [conflict, setConflict] = useState(null);
+  // The same when a row is renamed to another product's name
+  const [editConflict, setEditConflict] = useState(null);
   // Row being edited: changes live only in `draft` until "Save changes" is pressed
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(emptyForm);
@@ -33,15 +39,43 @@ export default function Inventory() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const addProduct = async (e) => {
-    e.preventDefault();
+  const saveNewProduct = async (allowDuplicate = false) => {
     setError('');
     setAdding(true);
     try {
-      const { product } = await api('/products', { method: 'POST', body: newProduct, token });
+      const body = allowDuplicate ? { ...newProduct, allow_duplicate: true } : newProduct;
+      const { product } = await api('/products', { method: 'POST', body, token });
       setProducts((list) => [...list, product]);
       setNewProduct(emptyForm);
+      setConflict(null);
     } catch (err) {
+      // The server also checks, in case the list here is out of date
+      const serverConflict = conflictFromError(err);
+      if (serverConflict) setConflict(serverConflict);
+      else setError(err.message);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const addProduct = (e) => {
+    e.preventDefault();
+    const localConflict = findConflict(products, newProduct);
+    if (localConflict) return setConflict(localConflict);
+    saveNewProduct();
+  };
+
+  const updateExistingPrice = async () => {
+    setError('');
+    setAdding(true);
+    try {
+      const { existing } = conflict;
+      const { product } = await api(`/products/${existing._id}`, { method: 'PUT', body: priceUpdateBody(existing, newProduct), token });
+      setProducts((list) => list.map((p) => (p._id === product._id ? product : p)));
+      setNewProduct(emptyForm);
+      setConflict(null);
+    } catch (err) {
+      setConflict(null);
       setError(err.message);
     } finally {
       setAdding(false);
@@ -59,15 +93,26 @@ export default function Inventory() {
     setDraft(emptyForm);
   };
 
-  const saveChanges = async () => {
+  const saveChanges = async (allowDuplicate = false) => {
+    if (!allowDuplicate) {
+      const editing = products.find((p) => p._id === editingId);
+      const renamed = editing && editing.item_name.trim().toLowerCase() !== draft.item_name.trim().toLowerCase();
+      const localConflict = renamed && findConflict(products.filter((p) => p._id !== editingId), draft);
+      if (localConflict) return setEditConflict(localConflict);
+    }
+
     setError('');
     setSaving(true);
     try {
-      const { product } = await api(`/products/${editingId}`, { method: 'PUT', body: draft, token });
+      const body = allowDuplicate ? { ...draft, allow_duplicate: true } : draft;
+      const { product } = await api(`/products/${editingId}`, { method: 'PUT', body, token });
       setProducts((list) => list.map((p) => (p._id === product._id ? product : p)));
+      setEditConflict(null);
       cancelEdit();
     } catch (err) {
-      setError(err.message);
+      const serverConflict = conflictFromError(err);
+      if (serverConflict) setEditConflict(serverConflict);
+      else setError(err.message);
     } finally {
       setSaving(false);
     }
@@ -100,6 +145,27 @@ export default function Inventory() {
         <button type="submit" disabled={adding}>{adding ? 'Adding…' : 'Add product'}</button>
       </form>
 
+      {conflict && (
+        <PriceConflictModal
+          conflict={conflict}
+          item={newProduct}
+          busy={adding}
+          onUpdate={updateExistingPrice}
+          onAddNew={() => saveNewProduct(true)}
+          onClose={() => setConflict(null)}
+        />
+      )}
+      {editConflict && (
+        <PriceConflictModal
+          conflict={editConflict}
+          item={draft}
+          busy={saving}
+          onAddNew={() => saveChanges(true)}
+          addNewLabel="Save as separate product"
+          onClose={() => setEditConflict(null)}
+        />
+      )}
+
       {loading ? (
         <p className="subtitle">Loading products…</p>
       ) : products.length === 0 ? (
@@ -125,7 +191,7 @@ export default function Inventory() {
                     <td><textarea name="description" rows={1} value={draft.description} onChange={updateDraft} /></td>
                     <td><PriceInput price={draft.price} unit={draft.unit} onChange={updateDraft} compact /></td>
                     <td className="actions">
-                      <button onClick={saveChanges} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+                      <button onClick={() => saveChanges()} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
                       <button className="secondary" onClick={cancelEdit} disabled={saving}>Cancel</button>
                     </td>
                   </tr>

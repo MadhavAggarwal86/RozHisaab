@@ -8,6 +8,8 @@
   --primary-hover: #16613a;
   --error-bg: #fdecec;
   --error-text: #a12626;
+  --warning-bg: #fff4e0;
+  --warning-text: #8a5300;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -235,6 +237,36 @@ button.danger:hover:not(:disabled) { background: #7f1d1d; }
 .review-buttons button.icon-button { display: inline-flex; align-items: center; padding: 6px 8px; }
 .review-price { text-align: right; min-width: 70px; }
 .review-hint { margin-top: 6px; font-size: 0.8rem; color: var(--error-text); }
+.review-conflict { display: grid; gap: 6px; margin-top: 8px; }
+.review-conflict .warning { margin: 0; font-size: 0.8rem; padding: 8px 10px; }
+.review-conflict .review-buttons { justify-content: flex-start; }
+
+.warning {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.price-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+.price-compare div { padding: 10px 12px; background: var(--bg); border-radius: 8px; }
+.price-compare dt { color: var(--muted); font-size: 0.8rem; }
+.price-compare dd { margin: 4px 0 0; font-size: 1.1rem; font-weight: 600; }
+.conflict-actions { flex-wrap: wrap; justify-content: flex-end; }
+
+.choose-group { margin: 14px 0 0; padding: 0; border: none; }
+.choose-group legend { margin-bottom: 6px; font-weight: 600; }
+.choose-option {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center;
+  margin-bottom: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+}
+.choose-option.selected { border-color: var(--primary); background: var(--bg); }
+.choose-option input { width: auto; margin: 0; }
+.choose-details, .choose-price { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.choose-details .muted { overflow-wrap: anywhere; }
+.choose-price { text-align: right; font-weight: 600; white-space: nowrap; }
+.choose-price .muted { font-weight: 400; }
 
 .bill-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .bill-header button { width: auto; padding: 8px 14px; }

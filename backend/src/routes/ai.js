@@ -51,9 +51,9 @@ router.post('/billing/parse', async (req, res) => {
   if (!products.length) return res.status(400).json({ message: 'Your inventory is empty. Add products first.' });
 
   try {
-    const lines = await extractBillLines(apiKey, products, message);
+    const { lines, ambiguous } = await extractBillLines(apiKey, products, message);
     const bill = buildBill(products, [...current, ...lines]);
-    res.json({ ...bill, matched: buildBill(products, lines).items.length });
+    res.json({ ...bill, matched: buildBill(products, lines).items.length, ambiguous });
   } catch (err) {
     if (err instanceof AiError) return res.status(err.status).json({ message: err.message });
     console.error(err);

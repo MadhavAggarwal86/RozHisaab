@@ -4,6 +4,8 @@ import mongoose from 'mongoose';
 const billItemSchema = new mongoose.Schema(
   {
     itemId: { type: Number, required: true },
+    // The inventory product billed; older bills don't have it
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     itemName: { type: String, required: true },
     price: { type: Number, required: true },
     // Quantity is in `unit`, the product's unit at the time of the bill
